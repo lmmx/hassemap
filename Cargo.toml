@@ -16,5 +16,6 @@ ordermap = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 anyhow = "1"
+petgraph = "0.6"
 
 [dev-dependencies]
