@@ -1,4 +1,7 @@
 use ordermap::OrderMap;
+use petgraph::graph::DiGraph;
+use petgraph::algo::toposort;
+use petgraph::graph::NodeIndex;
 
 pub struct Poset<K> {
     /// Stable order-of-appearance (OOA): key -> idx
@@ -93,42 +96,40 @@ impl<K: Ord + Eq + std::hash::Hash + Clone> Poset<K> {
     /// Produce one deterministic topological order (by smallest OOA index).
     /// Returns Err with the list of "stuck" keys if a cycle prevents a full order.
     pub fn topo_one(&self) -> Result<Vec<K>, Vec<K>> {
-        let n = self.keys.len();
-        let mut indeg = vec![0usize; n];
-        for u in 0..n {
-            for &v in &self.succ[u] {
-                indeg[v] += 1;
+        // Build a petgraph DiGraph over the current keys/edges
+        let mut g: DiGraph<(), ()> = DiGraph::new();
+        let mut nodes: Vec<NodeIndex> = Vec::with_capacity(self.keys.len());
+
+        // one node per key
+        for _ in 0..self.keys.len() {
+            nodes.push(g.add_node(()));
+        }
+
+        // add directed edges from succ
+        for (u, succs) in self.succ.iter().enumerate() {
+            for &v in succs {
+                g.add_edge(nodes[u], nodes[v], ());
             }
         }
 
-        let mut avail: Vec<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
-        let mut out = Vec::with_capacity(n);
-
-        while !avail.is_empty() {
-            // pick smallest index available (deterministic)
-            let u_pos = avail.iter().enumerate().min_by_key(|(_, &x)| x).unwrap().0;
-            let u = avail.remove(u_pos);
-
-            out.push(self.keys[u].clone());
-
-            for &v in &self.succ[u] {
-                indeg[v] -= 1;
-                if indeg[v] == 0 {
-                    let pos = avail.binary_search(&v).err().unwrap();
-                    avail.insert(pos, v);
+        // run topo sort
+        match toposort(&g, None) {
+            Ok(order) => {
+                // order is Vec<NodeIndex> in reverse topological order,
+                // so map back to your keys
+                let mut out = Vec::with_capacity(order.len());
+                for ix in order {
+                    // each NodeIndex directly maps to your original idx
+                    let idx = ix.index();
+                    out.push(self.keys[idx].clone());
                 }
+                Ok(out)
             }
-        }
-
-        if out.len() == n {
-            Ok(out)
-        } else {
-            // remaining nodes with indegree > 0 are part of (or blocked by) a cycle
-            let stuck: Vec<K> = (0..n)
-                .filter(|&i| indeg[i] > 0)
-                .map(|i| self.keys[i].clone())
-                .collect();
-            Err(stuck)
+            Err(cycle) => {
+                // cycle.node() gives you the NodeIndex of a problematic node
+                let stuck_key = self.keys[cycle.node_id().index()].clone();
+                Err(vec![stuck_key])
+            }
         }
     }
 }
