@@ -1,0 +1,20 @@
+[package]
+name = "hasse_map"
+version = "0.1.0"
+edition = "2021"
+authors = ["Louis Maddox <louismmx@gmail.com>"]
+description = "An order-preserving hash map data structure"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lmmx/hasse_map"
+documentation = "https://docs.rs/hasse_map"
+readme = "README.md"
+keywords = ["hashmap", "order", "data-structure", "collection"]
+categories = ["data-structures"]
+
+[dependencies]
+ordermap = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+anyhow = "1"
+
+[dev-dependencies]
