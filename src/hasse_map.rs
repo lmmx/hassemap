@@ -2,6 +2,7 @@ use ordermap::OrderMap;
 use petgraph::graph::DiGraph;
 use petgraph::algo::toposort;
 use petgraph::graph::NodeIndex;
+use petgraph::algo::has_path_connecting;
 
 pub struct Poset<K> {
     /// Stable order-of-appearance (OOA): key -> idx
@@ -55,42 +56,53 @@ impl<K: Ord + Eq + std::hash::Hash + Clone> Poset<K> {
 
     pub fn normalize(&mut self) {
         let n = self.keys.len();
-        // reachability matrix
-        let mut reach: Vec<Vec<bool>> = vec![vec![false; n]; n];
-        for s in 0..n {
-            let mut st = vec![s];
-            let mut seen = vec![false; n];
-            while let Some(u) = st.pop() {
-                for &v in &self.succ[u] {
-                    if !seen[v] {
-                        seen[v] = true;
-                        reach[s][v] = true;
-                        st.push(v);
-                    }
-                }
+
+        // Build a graph from current succ
+        let mut g: DiGraph<(), ()> = DiGraph::new();
+        let mut nodes = Vec::with_capacity(n);
+        for _ in 0..n {
+            nodes.push(g.add_node(()));
+        }
+        for (u, vs) in self.succ.iter().enumerate() {
+            for &v in vs {
+                g.add_edge(nodes[u], nodes[v], ());
             }
         }
-        // reduce edges to Hasse
+
+        // 1. Reduce to Hasse edges
+        let mut new_succ: Vec<Vec<usize>> = vec![Vec::new(); n];
         for u in 0..n {
-            let mut implied = vec![false; n];
             for &v in &self.succ[u] {
-                for w in 0..n {
-                    if reach[v][w] { implied[w] = true; }
+                // Temporarily skip edge u→v and see if v is still reachable
+                // (i.e. there is an alternate path from u to v).
+                // If not reachable, then keep this as a cover edge.
+                let mut g2 = g.clone();
+                // remove_edge returns Option, we don't care about result
+                if let Some(eid) = g2.find_edge(nodes[u], nodes[v]) {
+                    g2.remove_edge(eid);
+                }
+                if !has_path_connecting(&g2, nodes[u], nodes[v], None) {
+                    new_succ[u].push(v);
                 }
             }
-            self.succ[u].retain(|&w| !implied[w]);
         }
-        // rebuild incomparabilities
-        for i in 0..n { self.amb[i].clear(); }
+
+        // 2. Compute incomparabilities
+        let mut new_amb: Vec<Vec<usize>> = vec![Vec::new(); n];
         for i in 0..n {
-            for j in (i+1)..n {
-                if !reach[i][j] && !reach[j][i] {
-                    self.amb[i].push(j);
+            for j in (i + 1)..n {
+                let i_to_j = has_path_connecting(&g, nodes[i], nodes[j], None);
+                let j_to_i = has_path_connecting(&g, nodes[j], nodes[i], None);
+                if !i_to_j && !j_to_i {
+                    new_amb[i].push(j);
                 }
             }
         }
-        for row in &mut self.amb { row.sort_unstable(); }
-        for row in &mut self.succ { row.sort_unstable(); }
+        for row in &mut new_succ { row.sort_unstable(); }
+        for row in &mut new_amb { row.sort_unstable(); }
+
+        self.succ = new_succ;
+        self.amb = new_amb;
     }
 
     /// Produce one deterministic topological order (by smallest OOA index).
